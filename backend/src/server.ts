@@ -4,6 +4,7 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import { Pool } from 'pg';
+import { runAutoMigrations } from './db/autoMigrate';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -55,10 +56,23 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
     res.status(500).json({ error: 'Erro interno do servidor' });
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`🔥 Chapa Quente API rodando na porta ${PORT}`);
-    console.log(`📊 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-});
+// Start server with auto-migrations
+async function startServer() {
+    try {
+        // Rodar migrações automaticamente no startup
+        await runAutoMigrations(pool);
+
+        app.listen(PORT, () => {
+            console.log(`🔥 Chapa Quente API rodando na porta ${PORT}`);
+            console.log(`📊 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+        });
+    } catch (error) {
+        console.error('Erro ao iniciar servidor:', error);
+        process.exit(1);
+    }
+}
+
+startServer();
 
 export default app;
+
