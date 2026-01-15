@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { HotDog, CartItem, Order, OrderStatus, User } from './types';
 import { HOT_DOGS, OFFICIAL_LOGO_URL } from './constants';
 import Navbar from './components/Navbar';
@@ -17,8 +17,9 @@ import AuthModal from './components/AuthModal';
 import AdminDashboard from './components/AdminDashboard';
 import WelcomeScreen from './components/WelcomeScreen';
 import { printerService } from './services/BluetoothPrinterService';
+import { api, ordersAPI, productsAPI, Product } from './services/api';
 
-// Chaves do localStorage
+// Chaves do localStorage (mantidas para fallback)
 const ORDERS_STORAGE_KEY = 'chapa_quente_orders';
 const STOCK_STORAGE_KEY = 'chapa_quente_stock';
 
@@ -38,32 +39,89 @@ const App: React.FC = () => {
   const [showComboUpsell, setShowComboUpsell] = useState(false);
   const [socialToast, setSocialToast] = useState<{ name: string, location: string } | null>(null);
 
-  const [stock, setStock] = useState<Record<number, number>>(() => {
-    const saved = localStorage.getItem(STOCK_STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
-    // Inicializa com estoque padrão (ex: 50 cada)
-    return HOT_DOGS.reduce((acc, hd) => ({ ...acc, [hd.id]: 50 }), {});
-  });
+  const [stock, setStock] = useState<Record<number, number>>({});
+  const [apiProducts, setApiProducts] = useState<HotDog[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
-  const featuredItems = HOT_DOGS.slice(0, 5);
+  // Carregar produtos da API
+  const loadProductsFromAPI = useCallback(async () => {
+    try {
+      const products = await productsAPI.getAll();
+      const hotdogs: HotDog[] = products.map((p: Product) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        price: p.price,
+        image: p.image,
+        category: p.category,
+        tags: p.tags,
+        stock: p.stock,
+      }));
+      setApiProducts(hotdogs);
 
-  // Carregar pedidos do localStorage ao iniciar
-  useEffect(() => {
-    const savedOrders = localStorage.getItem(ORDERS_STORAGE_KEY);
-    if (savedOrders) {
-      try {
-        const parsed = JSON.parse(savedOrders);
-        // Converter strings de data de volta para Date objects
-        const ordersWithDates = parsed.map((o: any) => ({
-          ...o,
-          createdAt: new Date(o.createdAt)
-        }));
-        setAllOrders(ordersWithDates);
-      } catch (e) {
-        console.error('Erro ao carregar pedidos:', e);
-      }
+      // Atualizar estoque
+      const stockMap: Record<number, number> = {};
+      products.forEach((p: Product) => {
+        stockMap[p.id] = p.stock;
+      });
+      setStock(stockMap);
+      setIsLoadingProducts(false);
+    } catch (error) {
+      console.error('Erro ao carregar produtos da API, usando fallback local:', error);
+      // Fallback para produtos locais
+      setApiProducts(HOT_DOGS);
+      setStock(HOT_DOGS.reduce((acc, hd) => ({ ...acc, [hd.id]: 50 }), {}));
+      setIsLoadingProducts(false);
     }
   }, []);
+
+  // Carregar pedidos da API
+  const loadOrdersFromAPI = useCallback(async () => {
+    try {
+      const orders = await ordersAPI.getAll();
+      const localOrders: Order[] = orders.map(o => ({
+        id: o.id,
+        items: o.items.map(item => ({
+          id: item.productId,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          image: '',
+          customDescription: item.customDescription,
+        })),
+        total: o.total,
+        status: o.status as OrderStatus,
+        createdAt: new Date(o.createdAt),
+        customerName: o.customerName,
+        paymentMethod: o.paymentMethod,
+        queuePosition: o.queuePosition,
+        deliveryMode: o.deliveryMode,
+        deliveryAddress: o.deliveryAddress,
+        deliveryFee: o.deliveryFee,
+      }));
+      setAllOrders(localOrders);
+    } catch (error) {
+      console.error('Erro ao carregar pedidos da API:', error);
+    }
+  }, []);
+
+  // Usar produtos da API ou fallback
+  const products = apiProducts.length > 0 ? apiProducts : HOT_DOGS;
+  const featuredItems = products.slice(0, 5);
+
+  // Carregar produtos e pedidos da API ao iniciar
+  useEffect(() => {
+    loadProductsFromAPI();
+    loadOrdersFromAPI();
+  }, [loadProductsFromAPI, loadOrdersFromAPI]);
+
+  // Polling para atualizar pedidos em tempo real (a cada 15 segundos)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadOrdersFromAPI();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [loadOrdersFromAPI]);
 
   useEffect(() => {
     const locations = ['Centro', 'Jardins', 'Barra', 'Batista Campos', 'Umarizal', 'Meireles', 'Itaim Bibi', 'Vila Madalena'];
@@ -177,81 +235,91 @@ const App: React.FC = () => {
     setShowComboUpsell(false);
   };
 
-  const handleCheckout = (items: CartItem[], total: number, deliveryInfo?: any, paymentMethod?: string) => {
-    const ordersAhead = allOrders.filter(o => o.status === 'recebido' || o.status === 'preparando').length;
-
-    const newOrder: Order = {
-      id: Math.random().toString(36).substr(2, 9).toUpperCase(),
-      items: [...items],
-      total,
-      status: 'recebido',
-      createdAt: new Date(),
-      customerName: user?.name || 'Visitante',
-      queuePosition: ordersAhead + 1,
-      paymentMethod,
-      deliveryMode: deliveryInfo?.deliveryMode || 'pickup',
-      deliveryAddress: deliveryInfo?.address || 'Retirada no Local',
-      deliveryFee: deliveryInfo?.deliveryFee || 0
-    };
-    setActiveOrder(newOrder);
-
-    // Adiciona e salva no localStorage
-    const updatedOrders = [newOrder, ...allOrders];
-    setAllOrders(updatedOrders);
-    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(updatedOrders));
-
-    // Adiciona 1 selo ao usuário (a cada compra realizada)
-    if (user) {
-      const updatedUser = {
-        ...user,
-        loyaltyPoints: Math.min((user.loyaltyPoints || 0) + 1, 10) // Máximo 10 selos
+  const handleCheckout = async (items: CartItem[], total: number, deliveryInfo?: any, paymentMethod?: string) => {
+    try {
+      // Criar pedido na API
+      const orderData = {
+        customer_name: user?.name || 'Visitante',
+        items: items.map(item => ({
+          product_id: item.id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.price,
+          custom_description: item.customDescription,
+        })),
+        total,
+        delivery_mode: (deliveryInfo?.deliveryMode || 'pickup') as 'pickup' | 'delivery',
+        delivery_address: deliveryInfo?.address,
+        delivery_fee: deliveryInfo?.deliveryFee || 0,
+        payment_method: paymentMethod,
       };
-      setUser(updatedUser);
-      localStorage.setItem('chapa_quente_user', JSON.stringify(updatedUser));
-    }
 
-    // Deduz do estoque
-    setStock(prev => {
-      const newStock = { ...prev };
-      items.forEach(item => {
-        if (newStock[item.id] !== undefined) {
-          newStock[item.id] = Math.max(0, newStock[item.id] - item.quantity);
-        }
-      });
-      return newStock;
-    });
+      const apiOrder = await ordersAPI.create(orderData);
 
-    // Impressão automática se configurada
-    const autoPrintEnabled = localStorage.getItem('chapa_quente_auto_print') === 'true';
-    if (autoPrintEnabled && printerService.getConnectionStatus().isConnected) {
-      // Imprime comprovante do cliente e ticket da cozinha
-      printerService.printOrder({
-        id: newOrder.id,
-        customerName: newOrder.customerName || 'Cliente',
-        items: items.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
-        total: newOrder.total,
-        createdAt: newOrder.createdAt,
-        paymentMethod: paymentMethod,
-        deliveryMode: newOrder.deliveryMode,
-        deliveryAddress: newOrder.deliveryAddress
-      }).then(() => {
-        // Imprime também o ticket da cozinha
-        printerService.printKitchenTicket({
+      const newOrder: Order = {
+        id: apiOrder.id,
+        items: [...items],
+        total: apiOrder.total,
+        status: apiOrder.status as OrderStatus,
+        createdAt: new Date(apiOrder.createdAt),
+        customerName: apiOrder.customerName,
+        queuePosition: apiOrder.queuePosition,
+        paymentMethod: apiOrder.paymentMethod,
+        deliveryMode: apiOrder.deliveryMode,
+        deliveryAddress: apiOrder.deliveryAddress,
+        deliveryFee: apiOrder.deliveryFee,
+      };
+
+      setActiveOrder(newOrder);
+      setAllOrders(prev => [newOrder, ...prev]);
+
+      // Adiciona 1 selo ao usuário (a cada compra realizada)
+      if (user) {
+        const updatedUser = {
+          ...user,
+          loyaltyPoints: Math.min((user.loyaltyPoints || 0) + 1, 10)
+        };
+        setUser(updatedUser);
+        localStorage.setItem('chapa_quente_user', JSON.stringify(updatedUser));
+      }
+
+      // Recarregar estoque da API
+      await loadProductsFromAPI();
+
+      // Impressão automática se configurada
+      const autoPrintEnabled = localStorage.getItem('chapa_quente_auto_print') === 'true';
+      if (autoPrintEnabled && printerService.getConnectionStatus().isConnected) {
+        printerService.printOrder({
           id: newOrder.id,
           customerName: newOrder.customerName || 'Cliente',
           items: items.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
           total: newOrder.total,
           createdAt: newOrder.createdAt,
-          deliveryMode: newOrder.deliveryMode
+          paymentMethod: paymentMethod,
+          deliveryMode: newOrder.deliveryMode,
+          deliveryAddress: newOrder.deliveryAddress
+        }).then(() => {
+          printerService.printKitchenTicket({
+            id: newOrder.id,
+            customerName: newOrder.customerName || 'Cliente',
+            items: items.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
+            total: newOrder.total,
+            createdAt: newOrder.createdAt,
+            deliveryMode: newOrder.deliveryMode
+          });
+        }).catch(err => {
+          console.error('Erro na impressão automática:', err);
         });
-      }).catch(err => {
-        console.error('Erro na impressão automática:', err);
-      });
-    }
+      }
 
-    setCartItems([]);
-    setIsCartOpen(false);
-    setIsTrackingOpen(true);
+      setCartItems([]);
+      setIsCartOpen(false);
+      setIsTrackingOpen(true);
+
+    } catch (error) {
+      console.error('Erro ao criar pedido:', error);
+      alert('Erro ao criar pedido. Tente novamente.');
+    }
   };
 
   // Versão silenciosa do checkout para o assistente virtual (sem abrir modal de tracking)
@@ -288,13 +356,17 @@ const App: React.FC = () => {
     // Não abre o modal de tracking - a confirmação fica no chat
   };
 
-  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
-    const updatedOrders = allOrders.map(o => o.id === orderId ? { ...o, status } : o);
-    setAllOrders(updatedOrders);
-    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(updatedOrders));
+  const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    try {
+      await ordersAPI.updateStatus(orderId, status);
+      const updatedOrders = allOrders.map(o => o.id === orderId ? { ...o, status } : o);
+      setAllOrders(updatedOrders);
 
-    if (activeOrder?.id === orderId) {
-      setActiveOrder(prev => prev ? { ...prev, status } : null);
+      if (activeOrder?.id === orderId) {
+        setActiveOrder(prev => prev ? { ...prev, status } : null);
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error);
     }
   };
 
