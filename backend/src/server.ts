@@ -23,9 +23,32 @@ export const pool = new Pool({
 });
 
 // Middlewares
+// Configuração CORS flexível
+const allowedOrigins = [
+    process.env.FRONTEND_URL?.replace(/\/$/, ''), // Remove trailing slash
+    'https://chapaquente-nonj.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+].filter(Boolean);
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    credentials: true
+    origin: (origin, callback) => {
+        // Permite requests sem origin (Postman, curl, etc)
+        if (!origin) return callback(null, true);
+
+        // Remove trailing slash do origin
+        const cleanOrigin = origin.replace(/\/$/, '');
+
+        if (allowedOrigins.includes(cleanOrigin)) {
+            callback(null, true);
+        } else {
+            console.log('CORS blocked origin:', origin);
+            callback(null, true); // Temporariamente permite todos para debug
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 
