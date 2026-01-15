@@ -1,0 +1,33 @@
+# ============================================
+# RENDER DEPLOYMENT CONFIGURATION
+# ============================================
+# Este arquivo configura o deploy automático na Render
+
+services:
+  # Backend API
+  - type: web
+    name: chapaquente-api
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chapaquente-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false # Configure manualmente com a URL do seu frontend
+
+databases:
+  - name: chapaquente-db
+    databaseName: chapaquente
+    user: chapaquente
+    plan: free
+    region: oregon
