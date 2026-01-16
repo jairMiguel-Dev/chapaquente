@@ -137,7 +137,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const saved = localStorage.getItem('chapa_quente_user');
     if (saved) {
-      setUser(JSON.parse(saved));
+      const savedUser = JSON.parse(saved);
+      setUser(savedUser);
+      // Se for admin, abre o painel automaticamente
+      if (savedUser.isAdmin) {
+        setIsAdminOpen(true);
+      }
     }
   }, []);
 
@@ -378,20 +383,15 @@ const App: React.FC = () => {
         user={user}
         onLoginClick={() => setShowAuth(true)}
         onLogout={() => {
+          api.auth.logout();
           setUser(null);
-          localStorage.removeItem('chapa_quente_user');
+          setIsAdminOpen(false);
         }}
         onOrdersClick={() => setShowOrderHistory(true)}
+        onAdminClick={user?.isAdmin ? () => setIsAdminOpen(true) : undefined}
       />
 
-      {/* Botão Secreto de Admin no Footer ou Navbar */}
-      <button
-        onClick={() => setIsAdminOpen(true)}
-        className="fixed bottom-6 right-6 z-[100] w-12 h-12 bg-navy text-gold rounded-full flex items-center justify-center shadow-2xl opacity-20 hover:opacity-100 transition-opacity"
-        title="Painel Administrativo"
-      >
-        <i className="fas fa-user-shield"></i>
-      </button>
+
 
       {/* Balão Flutuante de Pedido em Andamento */}
       {activeOrder && activeOrder.status !== 'entregue' && !isTrackingOpen && (
@@ -562,6 +562,10 @@ const App: React.FC = () => {
           onLogin={(loggedUser) => {
             setUser(loggedUser);
             localStorage.setItem('chapa_quente_user', JSON.stringify(loggedUser));
+            // Se for admin, abre o painel administrativo automaticamente
+            if (loggedUser.isAdmin) {
+              setIsAdminOpen(true);
+            }
           }}
           required={!user} // Não pode fechar se não estiver logado
         />

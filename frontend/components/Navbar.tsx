@@ -10,9 +10,10 @@ interface NavbarProps {
   onLoginClick: () => void;
   onLogout: () => void;
   onOrdersClick: () => void;
+  onAdminClick?: () => void; // Opcional - só aparece para admins
 }
 
-const Navbar: React.FC<NavbarProps> = ({ cartCount, onCartClick, user, onLoginClick, onLogout, onOrdersClick }) => {
+const Navbar: React.FC<NavbarProps> = ({ cartCount, onCartClick, user, onLoginClick, onLogout, onOrdersClick, onAdminClick }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -60,8 +61,8 @@ const Navbar: React.FC<NavbarProps> = ({ cartCount, onCartClick, user, onLoginCl
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-[100] transition-all duration-500 ${isScrolled
-          ? 'py-2 bg-navy shadow-2xl border-b-4 border-gold'
-          : 'py-4 bg-transparent'
+        ? 'py-2 bg-navy shadow-2xl border-b-4 border-gold'
+        : 'py-4 bg-transparent'
         }`}
     >
       <div className="container mx-auto px-6 flex items-center justify-between">
@@ -119,6 +120,24 @@ const Navbar: React.FC<NavbarProps> = ({ cartCount, onCartClick, user, onLoginCl
                       <p className="text-gray-400 text-[10px]">{user.email}</p>
                     </div>
                     <div className="py-2">
+                      {/* Botão Admin - Só aparece para admins */}
+                      {user.isAdmin && onAdminClick && (
+                        <button
+                          onClick={() => {
+                            setShowUserMenu(false);
+                            onAdminClick();
+                          }}
+                          className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors flex items-center space-x-3 group border-b border-gray-100"
+                        >
+                          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                            <i className="fas fa-user-shield text-white text-sm"></i>
+                          </div>
+                          <div>
+                            <p className="text-blue-600 font-black text-xs uppercase">Painel Admin</p>
+                            <p className="text-gray-400 text-[9px]">Gerenciar pedidos e estoque</p>
+                          </div>
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           setShowUserMenu(false);
