@@ -218,6 +218,7 @@ export interface Order {
     paymentMethod?: string;
     machineNeeded?: boolean;
     queuePosition?: number;
+    observation?: string; // Observação do cliente
     createdAt: string;
     items: OrderItem[];
 }
@@ -237,6 +238,7 @@ export interface CreateOrderData {
     delivery_fee?: number;
     payment_method?: string;
     machine_needed?: boolean;
+    observation?: string; // Observação do cliente (ex: sem cebola)
 }
 
 export const ordersAPI = {

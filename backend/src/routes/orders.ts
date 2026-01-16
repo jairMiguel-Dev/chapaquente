@@ -66,6 +66,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
             paymentMethod: order.payment_method,
             machineNeeded: order.machine_needed,
             queuePosition: order.queue_position,
+            observation: order.observation || null, // Observação do cliente
             createdAt: order.created_at,
             items: order.items[0]?.id ? order.items.map((item: any) => ({
                 id: item.id,
@@ -171,9 +172,9 @@ router.post('/', optionalAuth, async (req: Request, res: Response) => {
       INSERT INTO orders (
         id, user_id, customer_name, status, total, 
         delivery_mode, delivery_address, delivery_fee, 
-        payment_method, machine_needed, queue_position
+        payment_method, machine_needed, queue_position, observation
       )
-      VALUES ($1, $2, $3, 'recebido', $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, 'recebido', $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `, [
             orderId,
@@ -185,7 +186,8 @@ router.post('/', optionalAuth, async (req: Request, res: Response) => {
             orderData.delivery_fee || 0,
             orderData.payment_method || null,
             orderData.machine_needed || false,
-            queuePosition
+            queuePosition,
+            orderData.observation || null // Observação do cliente
         ]);
 
         // Inserir itens do pedido
@@ -226,6 +228,7 @@ router.post('/', optionalAuth, async (req: Request, res: Response) => {
             deliveryFee: parseFloat(order.delivery_fee),
             paymentMethod: order.payment_method,
             queuePosition: order.queue_position,
+            observation: order.observation || null,
             createdAt: order.created_at,
             items: orderData.items
         });

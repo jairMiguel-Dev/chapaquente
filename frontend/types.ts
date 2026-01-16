@@ -44,6 +44,7 @@ export interface Order {
   deliveryAddress?: string; // Endereço de entrega
   deliveryFee?: number; // Taxa de entrega
   machineNeeded?: boolean; // Se o motoboy precisa levar a maquininha
+  observation?: string; // Observação do cliente (ex: sem cebola)
 }
 
 export interface FinancialStats {

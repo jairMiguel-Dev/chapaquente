@@ -240,7 +240,7 @@ const App: React.FC = () => {
     setShowComboUpsell(false);
   };
 
-  const handleCheckout = async (items: CartItem[], total: number, deliveryInfo?: any, paymentMethod?: string) => {
+  const handleCheckout = async (items: CartItem[], total: number, deliveryInfo?: any, paymentMethod?: string, observation?: string) => {
     try {
       // Criar pedido na API
       const orderData = {
@@ -257,6 +257,7 @@ const App: React.FC = () => {
         delivery_address: deliveryInfo?.address,
         delivery_fee: deliveryInfo?.deliveryFee || 0,
         payment_method: paymentMethod,
+        observation: observation || deliveryInfo?.observation || undefined, // Observação do cliente
       };
 
       const apiOrder = await ordersAPI.create(orderData);
@@ -273,6 +274,7 @@ const App: React.FC = () => {
         deliveryMode: apiOrder.deliveryMode,
         deliveryAddress: apiOrder.deliveryAddress,
         deliveryFee: apiOrder.deliveryFee,
+        observation: observation || deliveryInfo?.observation,
       };
 
       setActiveOrder(newOrder);

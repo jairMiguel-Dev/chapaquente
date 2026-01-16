@@ -58,6 +58,7 @@ export interface Order {
     payment_method?: string;
     machine_needed: boolean;
     queue_position?: number;
+    observation?: string; // Observação do cliente
     created_at: Date;
     updated_at: Date;
     items?: OrderItem[];
@@ -79,6 +80,7 @@ export interface CreateOrderDTO {
     delivery_fee?: number;
     payment_method?: string;
     machine_needed?: boolean;
+    observation?: string; // Observação do cliente (ex: sem cebola)
 }
 
 export interface RegisterUserDTO {

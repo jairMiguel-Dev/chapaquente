@@ -9,7 +9,7 @@ interface CartDrawerProps {
   items: CartItem[];
   onRemove: (id: number) => void;
   onUpdateQuantity: (id: number, delta: number) => void;
-  onCheckout: (items: CartItem[], total: number, deliveryInfo?: any, paymentMethod?: string) => void;
+  onCheckout: (items: CartItem[], total: number, deliveryInfo?: any, paymentMethod?: string, observation?: string) => void;
 }
 
 const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, items, onRemove, onUpdateQuantity, onCheckout }) => {
@@ -29,8 +29,9 @@ const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, items, onRemov
     setShowCheckout(true);
   };
 
-  const handleConfirmOrder = (deliveryInfo: any, paymentMethod: string) => {
-    onCheckout(items, total + deliveryInfo.deliveryFee, deliveryInfo, paymentMethod);
+  const handleConfirmOrder = (deliveryInfo: any, paymentMethod: string, adicionaisTotal?: number, observation?: string) => {
+    const totalComAdicionais = total + (deliveryInfo.deliveryFee || 0) + (adicionaisTotal || 0);
+    onCheckout(items, totalComAdicionais, { ...deliveryInfo, observation }, paymentMethod, observation);
     setShowCheckout(false);
   };
 

@@ -7,7 +7,7 @@ interface CheckoutModalProps {
   items: CartItem[];
   total: number;
   onClose: () => void;
-  onConfirm: (deliveryInfo: any, paymentMethod: string, adicionaisTotal?: number) => void;
+  onConfirm: (deliveryInfo: any, paymentMethod: string, adicionaisTotal?: number, observation?: string) => void;
 }
 
 type DeliveryMode = 'pickup' | 'delivery' | null;
@@ -67,6 +67,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ items, total, onClose, on
   const [paymentMethod, setPaymentMethod] = useState('');
   const [selectedAdicionais, setSelectedAdicionais] = useState<Record<number, number>>({});
   const [customerCoords, setCustomerCoords] = useState<{ lat: number, lng: number } | null>(null);
+  const [observation, setObservation] = useState(''); // Campo de observação do pedido
 
   // Estados para Autocomplete
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
@@ -693,6 +694,24 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ items, total, onClose, on
                 </div>
               )}
 
+              {/* Campo de Observação */}
+              <div className="space-y-2">
+                <label className="text-[9px] font-black text-navy/50 uppercase ml-2 tracking-widest flex items-center">
+                  <i className="fas fa-comment-alt mr-1"></i> Observação (opcional)
+                </label>
+                <textarea
+                  value={observation}
+                  onChange={(e) => setObservation(e.target.value)}
+                  placeholder="Ex: Sem cebola, molho à parte, bem passado..."
+                  rows={2}
+                  maxLength={200}
+                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-navy font-bold text-sm focus:border-gold focus:ring-0 transition-all outline-none resize-none"
+                />
+                <p className="text-[9px] text-gray-400 ml-2">
+                  {observation.length}/200 caracteres
+                </p>
+              </div>
+
               <div className="flex space-x-3 pt-4">
                 <button
                   type="button"
@@ -835,10 +854,12 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ items, total, onClose, on
                     {
                       address: deliveryMode === 'pickup' ? 'Retirada no Local' : getFullAddress(),
                       deliveryFee: actualDeliveryFee,
-                      deliveryMode
+                      deliveryMode,
+                      observation: observation.trim() || undefined // Só envia se tiver algo
                     },
                     paymentMethod,
-                    getAdicionaisTotal()
+                    getAdicionaisTotal(),
+                    observation.trim() || undefined
                   )}
                   className="flex-1 bg-green-600 text-white py-5 rounded-2xl font-black text-lg uppercase shadow-xl hover:bg-green-700 active:scale-95 transition-all disabled:opacity-20"
                 >
