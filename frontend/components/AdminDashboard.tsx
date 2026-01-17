@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Order, OrderStatus, FinancialStats } from '../types';
 import { HOT_DOGS } from '../constants';
 import PrinterConfig from './PrinterConfig';
@@ -13,6 +13,9 @@ interface AdminDashboardProps {
   onUpdateStock: (id: number, quantity: number) => void;
 }
 
+// Chave para armazenar pedidos já impressos
+const PRINTED_ORDERS_KEY = 'chapa_quente_printed_orders';
+
 const statusThemes: Record<OrderStatus, { bg: string; text: string; btn: string; label: string; icon: string }> = {
   recebido: { bg: 'bg-orange-50', text: 'text-orange-700', btn: 'bg-orange-600', label: 'NA FILA', icon: 'fa-clock' },
   preparando: { bg: 'bg-yellow-50', text: 'text-yellow-700', btn: 'bg-yellow-500', label: 'NA CHAPA', icon: 'fa-fire' },
@@ -24,6 +27,181 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ orders, onUpdateStatus,
   const [activeTab, setActiveTab] = useState<'operacional' | 'lucros' | 'estoque'>('operacional');
   const [showPrinterConfig, setShowPrinterConfig] = useState(false);
   const [printerConnected, setPrinterConnected] = useState(printerService.getConnectionStatus().isConnected);
+  const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState(() => {
+    return localStorage.getItem('chapa_quente_auto_print') === 'true';
+  });
+
+  // Ref para armazenar IDs de pedidos já impressos
+  const printedOrdersRef = useRef<Set<string>>(new Set());
+
+  // Audio ref para notificação
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Carregar pedidos impressos do localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(PRINTED_ORDERS_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        printedOrdersRef.current = new Set(parsed);
+      } catch (e) {
+        console.error('Erro ao carregar pedidos impressos:', e);
+      }
+    }
+  }, []);
+
+  // Salvar pedidos impressos no localStorage
+  const savePrintedOrders = useCallback(() => {
+    localStorage.setItem(PRINTED_ORDERS_KEY, JSON.stringify([...printedOrdersRef.current]));
+  }, []);
+
+  // Função para imprimir pedido
+  const printOrder = useCallback(async (order: Order) => {
+    if (!printerService.getConnectionStatus().isConnected) {
+      console.log('Impressora não conectada, pulando impressão');
+      return false;
+    }
+
+    try {
+      // Imprimir ticket do cliente
+      await printerService.printOrder({
+        id: order.id,
+        customerName: order.customerName || 'Cliente',
+        items: order.items.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
+        total: order.total,
+        createdAt: order.createdAt,
+        paymentMethod: order.paymentMethod,
+        deliveryMode: order.deliveryMode,
+        deliveryAddress: order.deliveryAddress,
+      });
+
+      // Imprimir ticket da cozinha
+      await printerService.printKitchenTicket({
+        id: order.id,
+        customerName: order.customerName || 'Cliente',
+        items: order.items.map(i => ({ name: i.name, quantity: i.quantity, price: i.price })),
+        total: order.total,
+        createdAt: order.createdAt,
+        deliveryMode: order.deliveryMode,
+      });
+
+      console.log(`✅ Pedido #${order.id} impresso com sucesso!`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Erro ao imprimir pedido #${order.id}:`, error);
+      return false;
+    }
+  }, []);
+
+  // Tocar som de notificação
+  const playNotificationSound = useCallback(() => {
+    try {
+      // Criar um beep usando Web Audio API
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.value = 800; // Frequência do beep
+      oscillator.type = 'sine';
+
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+
+      // Segundo beep
+      setTimeout(() => {
+        const osc2 = audioContext.createOscillator();
+        const gain2 = audioContext.createGain();
+        osc2.connect(gain2);
+        gain2.connect(audioContext.destination);
+        osc2.frequency.value = 1000;
+        osc2.type = 'sine';
+        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        osc2.start(audioContext.currentTime);
+        osc2.stop(audioContext.currentTime + 0.3);
+      }, 200);
+    } catch (e) {
+      console.log('Não foi possível tocar som de notificação');
+    }
+  }, []);
+
+  // Monitorar novos pedidos e imprimir automaticamente
+  useEffect(() => {
+    if (!orders || orders.length === 0) return;
+
+    // Verificar status da impressora
+    const isPrinterConnected = printerService.getConnectionStatus().isConnected;
+    setPrinterConnected(isPrinterConnected);
+
+    // Processar novos pedidos com status "recebido"
+    orders.forEach(async (order) => {
+      // Se o pedido já foi impresso, ignorar
+      if (printedOrdersRef.current.has(order.id)) return;
+
+      // Só processar pedidos recém recebidos
+      if (order.status !== 'recebido') return;
+
+      // Verificar se é um pedido recente (últimos 5 minutos)
+      const orderTime = new Date(order.createdAt).getTime();
+      const now = Date.now();
+      const fiveMinutes = 5 * 60 * 1000;
+      if (now - orderTime > fiveMinutes) {
+        // Pedido antigo, marcar como impresso para não processar
+        printedOrdersRef.current.add(order.id);
+        savePrintedOrders();
+        return;
+      }
+
+      // NOVO PEDIDO DETECTADO!
+      console.log(`🆕 Novo pedido detectado: #${order.id}`);
+
+      // Tocar som de notificação
+      playNotificationSound();
+
+      // Mostrar alerta visual
+      setNewOrderAlert(order);
+      setTimeout(() => setNewOrderAlert(null), 5000);
+
+      // Imprimir automaticamente se habilitado e impressora conectada
+      if (autoPrintEnabled && isPrinterConnected) {
+        console.log(`🖨️ Imprimindo pedido #${order.id} automaticamente...`);
+        const printed = await printOrder(order);
+        if (printed) {
+          printedOrdersRef.current.add(order.id);
+          savePrintedOrders();
+        }
+      } else {
+        // Marcar como "visto" para não notificar novamente
+        printedOrdersRef.current.add(order.id);
+        savePrintedOrders();
+      }
+    });
+  }, [orders, autoPrintEnabled, printOrder, playNotificationSound, savePrintedOrders]);
+
+  // Atualizar status da impressora periodicamente
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPrinterConnected(printerService.getConnectionStatus().isConnected);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Função para imprimir pedido manualmente
+  const handleManualPrint = async (order: Order) => {
+    const printed = await printOrder(order);
+    if (printed) {
+      alert(`✅ Pedido #${order.id} impresso com sucesso!`);
+    } else {
+      alert(`❌ Erro ao imprimir. Verifique se a impressora está conectada.`);
+    }
+  };
 
   const stats = useMemo(() => {
     const now = new Date();
@@ -54,6 +232,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ orders, onUpdateStatus,
 
   return (
     <div className="fixed inset-0 z-[300] bg-gray-100 flex flex-col font-sans">
+
+      {/* Alerta de Novo Pedido */}
+      {newOrderAlert && (
+        <div className="fixed top-0 left-0 right-0 z-[400] bg-green-500 text-white p-4 flex items-center justify-center space-x-4 animate-pulse shadow-2xl">
+          <i className="fas fa-bell text-2xl animate-bounce"></i>
+          <div className="text-center">
+            <p className="font-black text-lg uppercase">🆕 NOVO PEDIDO #{newOrderAlert.id}</p>
+            <p className="text-sm font-bold">
+              {newOrderAlert.customerName} - R$ {newOrderAlert.total.toFixed(2)}
+              {autoPrintEnabled && printerConnected && ' • Imprimindo...'}
+            </p>
+          </div>
+          <button
+            onClick={() => setNewOrderAlert(null)}
+            className="bg-white/20 px-4 py-2 rounded-lg font-black text-xs uppercase hover:bg-white/30"
+          >
+            OK
+          </button>
+        </div>
+      )}
+
       {/* Topbar Simplificada */}
       <header className="bg-navy p-4 md:p-6 flex flex-col md:flex-row items-center justify-between border-b-8 border-gold shadow-xl gap-4">
         <div className="flex items-center space-x-4">
@@ -155,8 +354,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ orders, onUpdateStatus,
                           <p className="text-[9px] font-bold uppercase">{order.customerName || 'Cliente'}</p>
                           {/* Badge de Entrega/Retirada */}
                           <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[8px] font-black uppercase mt-1 ${order.deliveryMode === 'pickup'
-                              ? 'bg-green-500 text-white'
-                              : 'bg-blue-500 text-white'
+                            ? 'bg-green-500 text-white'
+                            : 'bg-blue-500 text-white'
                             }`}>
                             <i className={`fas ${order.deliveryMode === 'pickup' ? 'fa-store' : 'fa-motorcycle'} mr-1`}></i>
                             {order.deliveryMode === 'pickup' ? 'RETIRADA' : 'ENTREGA'}
@@ -200,21 +399,48 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ orders, onUpdateStatus,
                           </div>
                         </div>
 
-                        <div className="flex gap-3">
+                        {/* Observação do Cliente */}
+                        {order.observation && (
+                          <div className="bg-yellow-50 rounded-2xl p-4 border-2 border-yellow-200">
+                            <div className="flex items-start space-x-2">
+                              <i className="fas fa-comment-alt text-yellow-600 mt-0.5"></i>
+                              <div>
+                                <p className="text-[9px] font-black text-yellow-700 uppercase mb-1">Observação do Cliente:</p>
+                                <p className="text-yellow-800 font-bold text-sm">{order.observation}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 flex-wrap">
+                          {/* Botão Imprimir */}
+                          <button
+                            onClick={() => handleManualPrint(order)}
+                            className={`px-4 py-3 rounded-2xl font-black text-[10px] uppercase flex items-center space-x-2 transition-all border-b-4 border-black/20 ${printerConnected
+                              ? 'bg-purple-600 text-white hover:bg-purple-700'
+                              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              }`}
+                            disabled={!printerConnected}
+                            title={printerConnected ? 'Imprimir Pedido' : 'Impressora não conectada'}
+                          >
+                            <i className="fas fa-print"></i>
+                            <span className="hidden sm:inline">Imprimir</span>
+                          </button>
+
                           <button
                             onClick={() => handleEmitSefaz(order)}
-                            className="flex-1 bg-navy text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center space-x-2 hover:bg-navy/90 transition-all border-b-4 border-black/20"
+                            className="px-4 py-3 bg-navy text-white rounded-2xl font-black text-[10px] uppercase flex items-center space-x-2 hover:bg-navy/90 transition-all border-b-4 border-black/20"
                           >
                             <i className="fas fa-file-invoice"></i>
-                            <span>Emitir Nota</span>
+                            <span className="hidden sm:inline">Nota</span>
                           </button>
 
                           {next && (
                             <button
                               onClick={() => onUpdateStatus(order.id, next)}
-                              className={`flex-[2] ${statusThemes[next].btn} text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center space-x-2 animate-pulse hover:animate-none transition-all border-b-4 border-black/20`}
+                              className={`flex-1 ${statusThemes[next].btn} text-white py-3 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center space-x-2 animate-pulse hover:animate-none transition-all border-b-4 border-black/20`}
                             >
-                              <span>AVANÇAR PARA: {statusThemes[next].label}</span>
+                              <span>AVANÇAR: {statusThemes[next].label}</span>
                               <i className="fas fa-arrow-right"></i>
                             </button>
                           )}
